@@ -17,6 +17,11 @@ scoreboard:
   cor-titulo: GOLD
   negrito-titulo: true
 
+# Sistema de Partidas e Pontos do QuestCodex
+partida:
+  ativa: true
+  bonus-primeiro-porcentagem: 50
+
 tag-padrao: membro
 
 tags:
@@ -60,3 +65,8 @@ jogadores:
 tags-liberadas:
   feeniqs:
     - "*"
+
+# Pontuação e conquistas salvas automaticamente
+pontuacao: {}
+conquistas-jogador: {}
+primeiro-conquista: {}

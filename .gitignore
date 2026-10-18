@@ -3,3 +3,6 @@ notes/
 
 # Instruções locais do assistente, fora do remoto
 CLAUDE.md
+
+# Trava de sessão do mundo (bloqueado pelo Java quando o servidor está aberto)
+**/session.lock
