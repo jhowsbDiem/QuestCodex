@@ -1,0 +1,47 @@
+[16:12:36] [ServerMain/INFO]: [bootstrap] Running Java 25 (OpenJDK 64-Bit Server VM 25.0.4.1+1-LTS; Eclipse Adoptium Temurin-25.0.4.1+1) on Windows 10 10.0 (amd64)
+[16:12:36] [ServerMain/INFO]: [bootstrap] Loading Paper 26.3-205-main@a90108f (2026-10-17T20:50:27Z) for Minecraft 26.3
+[16:12:36] [ServerMain/INFO]: [PluginInitializerManager] Initializing plugins...
+[16:12:37] [ServerMain/INFO]: [PluginInitializerManager] Initialized 2 plugins
+[16:12:37] [ServerMain/INFO]: [PluginInitializerManager] Bukkit plugins (2):
+ - PingPlugin (1.0), TagsPlugin (1.0)
+[16:12:42] [DataConverter MCTypeRegistry init thread/INFO]: [ca.spottedleaf.dataconverter.minecraft.datatypes.MCTypeRegistry] Initialising converters for DataConverter...
+[16:12:42] [ServerMain/INFO]: [com.destroystokyo.paper.profile.PaperServicesDiscoveryService] Environment: Environment[discoveryUrl=https://discovery.minecraftservices.com/minecraft/client, name=PROD]
+[16:12:42] [DataConverter MCTypeRegistry init thread/INFO]: [ca.spottedleaf.dataconverter.minecraft.datatypes.MCTypeRegistry] Finished initialising converters for DataConverter in 556,7ms
+[16:12:44] [Worker-Main-1/INFO]: Loaded 1866 advancements
+[16:12:44] [Server thread/INFO]: Starting minecraft server version 26.3
+[16:12:44] [Server thread/INFO]: Loading properties
+[16:12:44] [Server thread/INFO]: This server is running Paper version 26.3-205-main@a90108f (2026-10-17T20:50:27Z) (Implementing API version 26.3.build.205-stable)
+[16:12:44] [Server thread/INFO]: [spark] This server bundles the spark profiler. For more information please visit https://docs.papermc.io/paper/profiling
+[16:12:44] [Server thread/INFO]: Server Ping Player Sample Count: 12
+[16:12:44] [Server thread/INFO]: Using 4 threads for Netty based IO
+[16:12:45] [Server thread/INFO]: [MoonriseCommon] Paper is using 3 worker threads, 1 I/O threads
+[16:12:45] [Server thread/INFO]: Default game type: SURVIVAL
+[16:12:45] [Server thread/INFO]: Generating keypair
+[16:12:45] [Server thread/INFO]: Starting Minecraft server on *:25565
+[16:12:45] [Server thread/INFO]: Paper: Using Java compression from Velocity.
+[16:12:45] [Server thread/INFO]: Paper: Using Java cipher from Velocity.
+[16:12:45] [Server thread/INFO]: [TagsPlugin] Loading server plugin TagsPlugin v1.0
+[16:12:45] [Server thread/INFO]: [PingPlugin] Loading server plugin PingPlugin v1.0
+[16:12:45] [Server thread/INFO]: Preparing level "world"
+[16:12:46] [Server thread/INFO]: Loading 0 persistent chunks for level 'minecraft:overworld'...
+[16:12:46] [Server thread/INFO]: Preparing spawn area: 100%
+[16:12:46] [Server thread/INFO]: Prepared spawn area in 2 ms
+[16:12:46] [Server thread/INFO]: Loading 0 persistent chunks for level 'minecraft:the_nether'...
+[16:12:46] [Server thread/INFO]: Prepared spawn area in 1 ms
+[16:12:46] [Server thread/INFO]: Loading 0 persistent chunks for level 'minecraft:the_end'...
+[16:12:46] [Server thread/INFO]: Prepared spawn area in 1 ms
+[16:12:46] [Server thread/INFO]: Done preparing level "world" (0.480s)
+[16:12:46] [Server thread/INFO]: [TagsPlugin] Enabling TagsPlugin v1.0
+[16:12:46] [Server thread/INFO]: [TagsPlugin] TagsPlugin ativado com sucesso!
+[16:12:46] [Server thread/INFO]: [PingPlugin] Enabling PingPlugin v1.0
+[16:12:46] [Server thread/INFO]: [PingPlugin] PingPlugin ativado com sucesso!
+[16:12:46] [Server thread/INFO]: [spark] Starting background profiler...
+[16:12:46] [Server thread/INFO]: [spark] The async-profiler engine is not supported for your os/arch (windows10/amd64), so the built-in Java engine will be used instead.
+[16:12:46] [Server thread/INFO]: Saving chunks for level 'ServerLevel[world]'/minecraft:overworld
+[16:12:46] [Server thread/INFO]: Saving chunks for level 'ServerLevel[world]'/minecraft:the_nether
+[16:12:46] [Server thread/INFO]: Saving chunks for level 'ServerLevel[world]'/minecraft:the_end
+[16:12:46] [Server thread/INFO]: Running delayed init tasks
+[16:12:46] [Server thread/INFO]: Done (10.952s)! For help, type "help"
+[16:12:51] [User Authenticator #0/INFO]: UUID of player Feeniqs is eaa8cc35-87a0-47f8-a233-11abe862c5b7
+[16:12:52] [Server thread/INFO]: System chat: DONO Feeniqs joined the game
+[16:12:52] [Server thread/INFO]: Feeniqs[/127.0.0.1:51468] logged in with entity id 56 at ([minecraft:overworld]17.45172707746305, 128.30269872867265, -16.56465118072119)

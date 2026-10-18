@@ -1,0 +1,10 @@
+name: TagsPlugin
+version: '1.0'
+main: me.servidor.tags.TagsPlugin
+api-version: '26.3'
+description: Sistema facil de Tags no Chat, TAB e Cabeca
+commands:
+  tag:
+    description: Gerencia as tags dos jogadores
+    usage: /tag <set|criar|remover|lista|reload>
+    aliases: [tags, cargo]

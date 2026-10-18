@@ -1,0 +1,10 @@
+name: PingPlugin
+version: '1.0'
+main: me.servidor.ping.PingPlugin
+api-version: '26.3'
+description: Plugin simples para verificar a latencia (ping) dos jogadores
+commands:
+  ping:
+    description: Mostra o seu ping ou o de outro jogador
+    usage: /ping [jogador]
+    aliases: [latencia, ms]
