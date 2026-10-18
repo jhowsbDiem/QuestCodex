@@ -3,3 +3,38 @@ notes/
 
 # Instruções locais do assistente, fora do remoto
 CLAUDE.md
+
+# Trava de sessão do mundo (bloqueado pelo Java quando o servidor está aberto)
+**/session.lock
+
+# --- Servidor Paper de teste ---
+# Binários baixados pelo próprio servidor
+paper-*.jar
+cache/
+libraries/
+versions/
+
+# Mundo, logs e estado de runtime
+world*/
+logs/
+.paper/
+crash-reports/
+
+# Dados de jogadores e listas geradas
+banned-ips.json
+banned-players.json
+ops.json
+usercache.json
+whitelist.json
+eula.txt
+
+# Contém segredos (management-server-secret, rcon.password)
+server.properties
+
+# Plugins instalados e seus dados (gerados a partir de src-*/)
+plugins/
+
+# --- Build dos plugins ---
+src-*/build/
+src-*/*.jar
+*.class

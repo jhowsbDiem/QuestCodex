@@ -1,0 +1,56 @@
+# ==========================================================
+# CONFIGURAÇÃO DE TAGS DO SERVIDOR
+# ==========================================================
+# Cores disponíveis:
+# RED (Vermelho), DARK_RED (Vermelho Escuro), GOLD (Laranja/Ouro),
+# YELLOW (Amarelo), GREEN (Verde Claro), DARK_GREEN (Verde Escuro),
+# AQUA (Azul Claro/Ciano), DARK_AQUA (Ciano Escuro), BLUE (Azul),
+# DARK_BLUE (Azul Escuro), LIGHT_PURPLE (Rosa/Roxo Claro),
+# DARK_PURPLE (Roxo), WHITE (Branco), GRAY (Cinza), DARK_GRAY (Cinza Escuro)
+#
+# "ordem": Define a posição no TAB (01 fica no topo, 99 fica embaixo)
+# ==========================================================
+
+tag-padrao: membro
+
+tags:
+  dono:
+    prefixo: "DONO "
+    cor: RED
+    negrito: true
+    ordem: "01"
+  dev:
+    prefixo: "DEV "
+    cor: AQUA
+    negrito: true
+    ordem: "02"
+  admin:
+    prefixo: "ADMIN "
+    cor: GOLD
+    negrito: true
+    ordem: "03"
+  mod:
+    prefixo: "MOD "
+    cor: GREEN
+    negrito: true
+    ordem: "04"
+  vip:
+    prefixo: "VIP "
+    cor: LIGHT_PURPLE
+    negrito: true
+    ordem: "05"
+  membro:
+    prefixo: "MEMBRO "
+    cor: GRAY
+    negrito: true
+    ordem: "99"
+
+# Tag ativa atual de cada jogador
+jogadores:
+  feeniqs: dono
+
+# Tags liberadas para cada jogador (use '*' para ter todas as tags liberadas)
+# Para dar uma tag a um jogador no jogo: /tag dar <nick> <tag>
+tags-liberadas:
+  feeniqs:
+    - "*"
