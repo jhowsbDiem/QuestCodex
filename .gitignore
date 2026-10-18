@@ -1,0 +1,5 @@
+# Planos e anotações locais, nunca versionados
+notes/
+
+# Instruções locais do assistente, fora do remoto
+CLAUDE.md
