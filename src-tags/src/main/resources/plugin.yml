@@ -1,8 +1,8 @@
 name: TagsPlugin
-version: '1.2'
+version: '2.0'
 main: me.servidor.tags.TagsPlugin
 api-version: '26.3'
-description: Sistema facil de Tags no Chat, TAB, Cabeca e Scoreboard Lateral
+description: Sistema QuestCodex - Tags, Scoreboard, Livro de Conquistas e Partidas por Pontos
 commands:
   tag:
     description: Gerencia as tags dos jogadores
@@ -12,3 +12,14 @@ commands:
     description: Ativa ou desativa a Scoreboard lateral
     usage: /sb
     aliases: [scoreboard]
+  codex:
+    description: Abre o menu de conquistas do QuestCodex ou entrega o livro
+    usage: /codex [livro]
+    aliases: [quests, missoes, conquistas]
+  partida:
+    description: Gerencia a partida de pontos do QuestCodex
+    usage: /partida <iniciar|parar|resetar|top|darlivro>
+  pontos:
+    description: Mostra o ranking de pontos da partida
+    usage: /pontos
+    aliases: [ranking, top]
