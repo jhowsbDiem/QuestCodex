@@ -1,12 +1,5 @@
 # ==========================================================
-# CONFIGURAÇÃO DE TAGS, SCOREBOARD, COLISEU E PARTIDA
-# ==========================================================
-# Cores disponíveis:
-# RED (Vermelho), DARK_RED (Vermelho Escuro), GOLD (Laranja/Ouro),
-# YELLOW (Amarelo), GREEN (Verde Claro), DARK_GREEN (Verde Escuro),
-# AQUA (Azul Claro/Ciano), DARK_AQUA (Ciano Escuro), BLUE (Azul),
-# DARK_BLUE (Azul Escuro), LIGHT_PURPLE (Rosa/Roxo Claro),
-# DARK_PURPLE (Roxo), WHITE (Branco), GRAY (Cinza), DARK_GRAY (Cinza Escuro)
+# CONFIGURAÇÃO DE TAGS, SCOREBOARD, COLISEU, KITS E PARTIDA
 # ==========================================================
 
 scoreboard:
@@ -15,13 +8,18 @@ scoreboard:
   cor-titulo: GOLD
   negrito-titulo: true
 
-# Sistema de Partidas (45 min), Invencibilidade (2 min) e Coliseu nas Alturas
+# Sistema de Partidas (45 min), Invencibilidade (2 min), Respawn (30s) e Borda (700 = 350 para cada lado)
 partida:
   ativa: false
   duracao-minutos: 45
   invencibilidade-segundos: 120
+  respawn-invencibilidade-segundos: 30
+  respawn-speed2-segundos: 15
+  porcentagem-perda-itens-morte: 30
+  porcentagem-dano-durabilidade-morte: 20
+  porcentagem-roubo-pontos-pvp: 15
   bonus-primeiro-porcentagem: 50
-  borda-mapa-blocos: 350
+  borda-mapa-blocos: 700
 
 coliseu:
   altura-y: 165
@@ -70,7 +68,6 @@ jogadores:
   feeniqs: dono
 
 # Tags liberadas para cada jogador (use '*' para ter todas as tags liberadas)
-# Para dar uma tag a um jogador no jogo: /tag add <nick> <tag>
 tags-liberadas:
   feeniqs:
     - "*"

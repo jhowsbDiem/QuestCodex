@@ -8,7 +8,7 @@ if not exist "paper-26.3-205.jar" (
     powershell -NoProfile -Command "$ua='QuestCodex/1.0'; $url=(Invoke-RestMethod -Uri 'https://fill.papermc.io/v3/projects/paper/versions/26.3/builds/latest' -Headers @{'User-Agent'=$ua}).downloads.'server:default'.url; Invoke-WebRequest -Uri $url -Headers @{'User-Agent'=$ua} -OutFile 'paper-26.3-205.jar'"
 )
 
-REM 2. Garante eula.txt e server.properties com a Seed oficial (7311929229522424735)
+REM 2. Garante eula.txt e server.properties com a Seed oficial (7311929229522424735) e Dificuldade HARD
 if not exist "eula.txt" (
     echo eula=true> eula.txt
 )
@@ -17,7 +17,7 @@ if not exist "server.properties" (
         echo level-name=world
         echo level-seed=7311929229522424735
         echo gamemode=survival
-        echo difficulty=normal
+        echo difficulty=hard
         echo spawn-protection=0
         echo white-list=false
         echo online-mode=true
@@ -27,7 +27,17 @@ if not exist "server.properties" (
     ) > server.properties
 )
 
-REM 3. Compila os plugins automaticamente se a biblioteca do Paper ja estiver extraida
+REM 3. Se a partida anterior encerrou e marcou reset-world.flag, apaga o mapa para gerar um novo limpo!
+if exist "reset-world.flag" (
+    echo [QuestCodex] Resetando o mapa ^(world^) apos o fim da partida anterior...
+    if exist "world" rmdir /s /q "world"
+    if exist "world_nether" rmdir /s /q "world_nether"
+    if exist "world_the_end" rmdir /s /q "world_the_end"
+    del /f /q "reset-world.flag"
+    echo [QuestCodex] Mapa resetado com sucesso! Um novo mapa sera gerado na seed oficial.
+)
+
+REM 4. Compila os plugins automaticamente se a biblioteca do Paper ja estiver extraida
 if exist "libraries\io\papermc\paper\paper-api" (
     echo [QuestCodex] Compilando plugins atualizados ^(PingPlugin e TagsPlugin^)...
     powershell -NoProfile -ExecutionPolicy Bypass -File "compilar-plugins.ps1"
