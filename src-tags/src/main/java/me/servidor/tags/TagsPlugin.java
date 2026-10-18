@@ -1,6 +1,7 @@
 package me.servidor.tags;
 
 import io.papermc.paper.event.player.AsyncChatEvent;
+import io.papermc.paper.scoreboard.numbers.NumberFormat;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickEvent;
 import net.kyori.adventure.text.event.HoverEvent;
@@ -17,39 +18,75 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.scoreboard.Criteria;
+import org.bukkit.scoreboard.DisplaySlot;
+import org.bukkit.scoreboard.Objective;
+import org.bukkit.scoreboard.Score;
 import org.bukkit.scoreboard.Scoreboard;
 import org.bukkit.scoreboard.Team;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 
 public final class TagsPlugin extends JavaPlugin implements Listener, CommandExecutor, TabCompleter {
+
+    private final Set<UUID> hiddenScoreboard = new HashSet<>();
 
     @Override
     public void onEnable() {
         saveDefaultConfig();
+        // Garante que as chaves da scoreboard existam mesmo se o config.yml for antigo
+        if (!getConfig().contains("scoreboard.titulo")) {
+            getConfig().set("scoreboard.ativada", true);
+            getConfig().set("scoreboard.titulo", "QUEST CODEX");
+            getConfig().set("scoreboard.cor-titulo", "GOLD");
+            getConfig().set("scoreboard.negrito-titulo", true);
+            saveConfig();
+        }
+
         Bukkit.getPluginManager().registerEvents(this, this);
 
-        var cmd = getCommand("tag");
-        if (cmd != null) {
-            cmd.setExecutor(this);
-            cmd.setTabCompleter(this);
+        var tagCmd = getCommand("tag");
+        if (tagCmd != null) {
+            tagCmd.setExecutor(this);
+            tagCmd.setTabCompleter(this);
+        }
+
+        var sbCmd = getCommand("sb");
+        if (sbCmd != null) {
+            sbCmd.setExecutor(this);
         }
 
         for (Player player : Bukkit.getOnlinePlayers()) {
             applyPlayerTag(player);
         }
 
-        getLogger().info("TagsPlugin ativado com sucesso!");
+        // Atualiza a Scoreboard lateral a cada 1 segundo (20 ticks)
+        Bukkit.getScheduler().runTaskTimer(this, () -> {
+            for (Player player : Bukkit.getOnlinePlayers()) {
+                updatePlayerScoreboard(player);
+            }
+        }, 20L, 20L);
+
+        getLogger().info("TagsPlugin + Scoreboard QUEST CODEX ativado com sucesso!");
     }
 
     @EventHandler
     public void onJoin(PlayerJoinEvent event) {
-        applyPlayerTag(event.getPlayer());
+        Player player = event.getPlayer();
+        applyPlayerTag(player);
+        // Sincroniza todas as tags e scoreboard no login
+        Bukkit.getScheduler().runTaskLater(this, () -> {
+            for (Player p : Bukkit.getOnlinePlayers()) {
+                updatePlayerScoreboard(p);
+            }
+        }, 5L);
     }
 
     @EventHandler
@@ -77,38 +114,135 @@ public final class TagsPlugin extends JavaPlugin implements Listener, CommandExe
 
     public void applyPlayerTag(Player player) {
         TagInfo info = getPlayerTagInfo(player.getName());
-        Scoreboard sb = Bukkit.getScoreboardManager().getMainScoreboard();
-
-        String teamName = "t_" + info.order + "_" + info.id;
-        if (teamName.length() > 16) {
-            teamName = teamName.substring(0, 16);
-        }
-
-        for (Team t : sb.getTeams()) {
-            if (t.getName().startsWith("t_") && t.hasEntry(player.getName())) {
-                t.removeEntry(player.getName());
-            }
-        }
-
-        Team team = sb.getTeam(teamName);
-        if (team == null) {
-            team = sb.registerNewTeam(teamName);
-        }
 
         Component prefixComp = Component.text(info.prefix, info.color);
         if (info.bold) {
             prefixComp = prefixComp.decorate(TextDecoration.BOLD);
         }
 
-        team.prefix(prefixComp);
-        team.color(info.color);
-        team.addEntry(player.getName());
-
         Component tabName = prefixComp.append(
                 Component.text(player.getName(), info.color).decoration(TextDecoration.BOLD, false)
         );
         player.playerListName(tabName);
         player.displayName(tabName);
+
+        // Atualiza a scoreboard e os times de todos os jogadores online
+        for (Player online : Bukkit.getOnlinePlayers()) {
+            updatePlayerScoreboard(online);
+        }
+    }
+
+    public void updatePlayerScoreboard(Player viewer) {
+        Scoreboard mainSb = Bukkit.getScoreboardManager().getMainScoreboard();
+        Scoreboard sb = viewer.getScoreboard();
+        if (sb == null || sb == mainSb) {
+            sb = Bukkit.getScoreboardManager().getNewScoreboard();
+            viewer.setScoreboard(sb);
+        }
+
+        // 1. Sincroniza os times de Tags (para que o F5/cabeça e a ordem do TAB funcionem em scoreboards individuais)
+        for (Player target : Bukkit.getOnlinePlayers()) {
+            TagInfo tInfo = getPlayerTagInfo(target.getName());
+            String teamName = "t_" + tInfo.order + "_" + tInfo.id;
+            if (teamName.length() > 16) {
+                teamName = teamName.substring(0, 16);
+            }
+
+            for (Team existing : sb.getTeams()) {
+                if (existing.getName().startsWith("t_") && !existing.getName().equals(teamName) && existing.hasEntry(target.getName())) {
+                    existing.removeEntry(target.getName());
+                }
+            }
+
+            Team team = sb.getTeam(teamName);
+            if (team == null) {
+                team = sb.registerNewTeam(teamName);
+            }
+
+            Component prefixComp = Component.text(tInfo.prefix, tInfo.color);
+            if (tInfo.bold) {
+                prefixComp = prefixComp.decorate(TextDecoration.BOLD);
+            }
+
+            team.prefix(prefixComp);
+            team.color(tInfo.color);
+            if (!team.hasEntry(target.getName())) {
+                team.addEntry(target.getName());
+            }
+        }
+
+        // 2. Verifica se a Scoreboard lateral está ativada
+        boolean enabledGlobal = getConfig().getBoolean("scoreboard.ativada", true);
+        if (!enabledGlobal || hiddenScoreboard.contains(viewer.getUniqueId())) {
+            Objective old = sb.getObjective(DisplaySlot.SIDEBAR);
+            if (old != null) {
+                old.unregister();
+            }
+            return;
+        }
+
+        String titleText = getConfig().getString("scoreboard.titulo", "QUEST CODEX");
+        String titleColorName = getConfig().getString("scoreboard.cor-titulo", "GOLD");
+        boolean titleBold = getConfig().getBoolean("scoreboard.negrito-titulo", true);
+
+        NamedTextColor titleColor = NamedTextColor.NAMES.value(titleColorName.toLowerCase());
+        if (titleColor == null) titleColor = NamedTextColor.GOLD;
+
+        Component titleComp = Component.text("  " + titleText + "  ", titleColor);
+        if (titleBold) {
+            titleComp = titleComp.decorate(TextDecoration.BOLD);
+        }
+
+        Objective obj = sb.getObjective("qc_sidebar");
+        if (obj == null) {
+            obj = sb.registerNewObjective("qc_sidebar", Criteria.DUMMY, titleComp);
+            obj.setDisplaySlot(DisplaySlot.SIDEBAR);
+        } else {
+            obj.displayName(titleComp);
+        }
+
+        // Oculta os números vermelhos na direita da Scoreboard (igual à imagem do FLAME!)
+        obj.numberFormat(NumberFormat.blank());
+
+        TagInfo viewerTag = getPlayerTagInfo(viewer.getName());
+        String tagDisplay = viewerTag.prefix.trim();
+        int ping = viewer.getPing();
+        int onlineCount = Bukkit.getOnlinePlayers().size();
+
+        NamedTextColor pingColor;
+        if (ping < 60) pingColor = NamedTextColor.GREEN;
+        else if (ping < 150) pingColor = NamedTextColor.YELLOW;
+        else if (ping < 250) pingColor = NamedTextColor.GOLD;
+        else pingColor = NamedTextColor.RED;
+
+        // Linhas da Scoreboard (de cima para baixo: 6 até 1)
+        setSidebarLine(obj, "line6", 6, Component.empty());
+
+        setSidebarLine(obj, "line5", 5,
+                Component.text("Cargo: ", NamedTextColor.WHITE)
+                        .append(Component.text(tagDisplay, viewerTag.color).decorate(TextDecoration.BOLD))
+        );
+
+        setSidebarLine(obj, "line4", 4,
+                Component.text("Ping: ", NamedTextColor.WHITE)
+                        .append(Component.text(ping + "ms", pingColor))
+        );
+
+        setSidebarLine(obj, "line3", 3, Component.empty());
+
+        setSidebarLine(obj, "line2", 2,
+                Component.text("Players: ", NamedTextColor.WHITE)
+                        .append(Component.text(String.valueOf(onlineCount), NamedTextColor.GREEN))
+        );
+
+        setSidebarLine(obj, "line1", 1, Component.empty());
+    }
+
+    private void setSidebarLine(Objective obj, String entryKey, int scoreValue, Component content) {
+        Score score = obj.getScore(entryKey);
+        score.setScore(scoreValue);
+        score.customName(content);
+        score.numberFormat(NumberFormat.blank());
     }
 
     private Set<String> getAllTags() {
@@ -242,6 +376,23 @@ public final class TagsPlugin extends JavaPlugin implements Listener, CommandExe
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+        if (command.getName().equalsIgnoreCase("sb")) {
+            if (!(sender instanceof Player player)) {
+                sender.sendMessage(Component.text("Apenas jogadores podem usar /sb.", NamedTextColor.RED));
+                return true;
+            }
+            if (hiddenScoreboard.contains(player.getUniqueId())) {
+                hiddenScoreboard.remove(player.getUniqueId());
+                updatePlayerScoreboard(player);
+                player.sendMessage(Component.text("Scoreboard ativada!", NamedTextColor.GREEN));
+            } else {
+                hiddenScoreboard.add(player.getUniqueId());
+                updatePlayerScoreboard(player);
+                player.sendMessage(Component.text("Scoreboard ocultada! Digite /sb novamente para mostrar.", NamedTextColor.YELLOW));
+            }
+            return true;
+        }
+
         if (args.length == 0) {
             if (!(sender instanceof Player player)) {
                 sendHelp(sender);
@@ -283,7 +434,7 @@ public final class TagsPlugin extends JavaPlugin implements Listener, CommandExe
                 for (Player p : Bukkit.getOnlinePlayers()) {
                     applyPlayerTag(p);
                 }
-                sender.sendMessage(Component.text("Configuração de tags recarregada com sucesso!", NamedTextColor.GREEN));
+                sender.sendMessage(Component.text("Configuração de tags e scoreboard recarregada com sucesso!", NamedTextColor.GREEN));
                 return true;
             }
             case "criar" -> {
@@ -465,6 +616,7 @@ public final class TagsPlugin extends JavaPlugin implements Listener, CommandExe
         sender.sendMessage(Component.text("====== Menu de Ajuda: /tag ======", NamedTextColor.GOLD).decorate(TextDecoration.BOLD));
         sender.sendMessage(Component.text("/tag", NamedTextColor.YELLOW).append(Component.text(" - Abre suas tags no chat para escolher clicando", NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("/tag <nome>", NamedTextColor.YELLOW).append(Component.text(" - Equipa uma tag direto (ex: /tag dono)", NamedTextColor.GRAY)));
+        sender.sendMessage(Component.text("/sb", NamedTextColor.YELLOW).append(Component.text(" - Mostra ou oculta a Scoreboard lateral", NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("/tag help", NamedTextColor.YELLOW).append(Component.text(" - Mostra esta lista de comandos", NamedTextColor.GRAY)));
         if (sender.isOp() || sender.hasPermission("tags.admin")) {
             sender.sendMessage(Component.text("--- Comandos de Admin (OP) ---", NamedTextColor.RED));

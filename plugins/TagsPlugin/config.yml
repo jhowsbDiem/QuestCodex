@@ -1,5 +1,5 @@
 # ==========================================================
-# CONFIGURAÇÃO DE TAGS DO SERVIDOR
+# CONFIGURAÇÃO DE TAGS E SCOREBOARD DO SERVIDOR
 # ==========================================================
 # Cores disponíveis:
 # RED (Vermelho), DARK_RED (Vermelho Escuro), GOLD (Laranja/Ouro),
@@ -11,46 +11,52 @@
 # "ordem": Define a posição no TAB (01 fica no topo, 99 fica embaixo)
 # ==========================================================
 
+scoreboard:
+  ativada: true
+  titulo: "QUEST CODEX"
+  cor-titulo: GOLD
+  negrito-titulo: true
+
 tag-padrao: membro
 
 tags:
   dono:
-    prefixo: 'DONO '
+    prefixo: "DONO "
     cor: RED
     negrito: true
-    ordem: '01'
+    ordem: "01"
   dev:
-    prefixo: 'DEV '
+    prefixo: "DEV "
     cor: AQUA
     negrito: true
-    ordem: '02'
+    ordem: "02"
   admin:
-    prefixo: 'ADMIN '
+    prefixo: "ADMIN "
     cor: GOLD
     negrito: true
-    ordem: '03'
+    ordem: "03"
   mod:
-    prefixo: 'MOD '
+    prefixo: "MOD "
     cor: GREEN
     negrito: true
-    ordem: '04'
+    ordem: "04"
   vip:
-    prefixo: 'VIP '
+    prefixo: "VIP "
     cor: LIGHT_PURPLE
     negrito: true
-    ordem: '05'
+    ordem: "05"
   membro:
-    prefixo: 'MEMBRO '
+    prefixo: "MEMBRO "
     cor: GRAY
     negrito: true
-    ordem: '99'
+    ordem: "99"
 
 # Tag ativa atual de cada jogador
 jogadores:
   feeniqs: dono
 
 # Tags liberadas para cada jogador (use '*' para ter todas as tags liberadas)
-# Para dar uma tag a um jogador no jogo: /tag dar <nick> <tag>
+# Para dar uma tag a um jogador no jogo: /tag add <nick> <tag>
 tags-liberadas:
   feeniqs:
-  - '*'
+    - "*"

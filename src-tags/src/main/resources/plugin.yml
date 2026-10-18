@@ -1,10 +1,14 @@
 name: TagsPlugin
-version: '1.0'
+version: '1.2'
 main: me.servidor.tags.TagsPlugin
 api-version: '26.3'
-description: Sistema facil de Tags no Chat, TAB e Cabeca
+description: Sistema facil de Tags no Chat, TAB, Cabeca e Scoreboard Lateral
 commands:
   tag:
     description: Gerencia as tags dos jogadores
-    usage: /tag <set|criar|remover|lista|reload>
+    usage: /tag [help|add|set|criar|remover|lista|reload]
     aliases: [tags, cargo]
+  sb:
+    description: Ativa ou desativa a Scoreboard lateral
+    usage: /sb
+    aliases: [scoreboard]
