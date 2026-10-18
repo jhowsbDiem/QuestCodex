@@ -1,5 +1,5 @@
 # ==========================================================
-# CONFIGURAÇÃO DE TAGS E SCOREBOARD DO SERVIDOR
+# CONFIGURAÇÃO DE TAGS, SCOREBOARD, COLISEU E PARTIDA
 # ==========================================================
 # Cores disponíveis:
 # RED (Vermelho), DARK_RED (Vermelho Escuro), GOLD (Laranja/Ouro),
@@ -7,8 +7,6 @@
 # AQUA (Azul Claro/Ciano), DARK_AQUA (Ciano Escuro), BLUE (Azul),
 # DARK_BLUE (Azul Escuro), LIGHT_PURPLE (Rosa/Roxo Claro),
 # DARK_PURPLE (Roxo), WHITE (Branco), GRAY (Cinza), DARK_GRAY (Cinza Escuro)
-#
-# "ordem": Define a posição no TAB (01 fica no topo, 99 fica embaixo)
 # ==========================================================
 
 scoreboard:
@@ -17,10 +15,21 @@ scoreboard:
   cor-titulo: GOLD
   negrito-titulo: true
 
-# Sistema de Partidas e Pontos do QuestCodex
+# Sistema de Partidas (45 min), Invencibilidade (2 min) e Coliseu nas Alturas
 partida:
-  ativa: true
+  ativa: false
+  duracao-minutos: 45
+  invencibilidade-segundos: 120
   bonus-primeiro-porcentagem: 50
+  borda-mapa-blocos: 350
+
+coliseu:
+  altura-y: 165
+  raio: 16
+
+safezone:
+  ativada: true
+  raio-blocos: 25
 
 tag-padrao: membro
 

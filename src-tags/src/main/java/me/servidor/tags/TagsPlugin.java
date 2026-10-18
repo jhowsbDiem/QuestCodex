@@ -7,11 +7,15 @@ import net.kyori.adventure.text.event.ClickEvent;
 import net.kyori.adventure.text.event.HoverEvent;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
+import net.kyori.adventure.title.Title;
 import org.bukkit.Bukkit;
+import org.bukkit.GameMode;
+import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.Sound;
 import org.bukkit.World;
+import org.bukkit.WorldBorder;
 import org.bukkit.block.Block;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -23,15 +27,22 @@ import org.bukkit.entity.EntityType;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Monster;
 import org.bukkit.entity.Player;
+import org.bukkit.entity.Projectile;
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.block.BlockBreakEvent;
+import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.enchantment.EnchantItemEvent;
 import org.bukkit.event.entity.EntityBreedEvent;
+import org.bukkit.event.entity.EntityDamageByEntityEvent;
+import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.EntityDeathEvent;
+import org.bukkit.event.entity.EntityExplodeEvent;
 import org.bukkit.event.entity.EntityPickupItemEvent;
 import org.bukkit.event.entity.EntityTameEvent;
+import org.bukkit.event.entity.FoodLevelChangeEvent;
 import org.bukkit.event.inventory.CraftItemEvent;
 import org.bukkit.event.inventory.FurnaceExtractEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
@@ -40,6 +51,7 @@ import org.bukkit.event.player.PlayerFishEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerItemConsumeEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerRespawnEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemFlag;
@@ -47,6 +59,8 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.potion.PotionEffect;
+import org.bukkit.potion.PotionEffectType;
 import org.bukkit.scoreboard.Criteria;
 import org.bukkit.scoreboard.DisplaySlot;
 import org.bukkit.scoreboard.Objective;
@@ -54,6 +68,7 @@ import org.bukkit.scoreboard.Score;
 import org.bukkit.scoreboard.Scoreboard;
 import org.bukkit.scoreboard.Team;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -70,10 +85,25 @@ import java.util.UUID;
 public final class TagsPlugin extends JavaPlugin implements Listener, CommandExecutor, TabCompleter {
 
     private final Set<UUID> hiddenScoreboard = new HashSet<>();
+    private final Set<UUID> insideSafeZone = new HashSet<>();
     private final Map<String, QuestDef> quests = new LinkedHashMap<>();
     private final Map<String, Integer> blockBreakProgress = new HashMap<>();
     private final Map<String, Integer> mobKillProgress = new HashMap<>();
     private NamespacedKey codexBookKey;
+
+    // Cronômetro da partida (em segundos). Padrão: 45 * 60 = 2700s
+    private int matchRemainingSeconds = 45 * 60;
+    private boolean timerRunning = false;
+
+    // Controle do Coliseu e Invencibilidade Inicial (2 minutos = 120s)
+    private boolean gatesOpen = false;
+    private int invincibilityRemainingSeconds = 0;
+
+    // Coordenadas base do Coliseu nas alturas
+    private int coliseumCenterX = 0;
+    private int coliseumCenterZ = 0;
+    private int coliseumFloorY = 165;
+    private int coliseumRadius = 16;
 
     private static final String GUI_TITLE_MARKER = "QuestCodex — Conquistas";
 
@@ -88,13 +118,31 @@ public final class TagsPlugin extends JavaPlugin implements Listener, CommandExe
             getConfig().set("scoreboard.cor-titulo", "GOLD");
             getConfig().set("scoreboard.negrito-titulo", true);
         }
-        if (!getConfig().contains("partida.ativa")) {
-            getConfig().set("partida.ativa", true);
+        if (!getConfig().contains("partida.invencibilidade-segundos")) {
+            getConfig().set("partida.ativa", false);
+            getConfig().set("partida.duracao-minutos", 45);
+            getConfig().set("partida.invencibilidade-segundos", 120);
             getConfig().set("partida.bonus-primeiro-porcentagem", 50);
+            getConfig().set("partida.borda-mapa-blocos", 350);
+        } else if (getConfig().getInt("partida.borda-mapa-blocos", 350) >= 1000) {
+            getConfig().set("partida.borda-mapa-blocos", 350);
+        }
+        if (!getConfig().contains("coliseu.altura-y")) {
+            getConfig().set("coliseu.altura-y", 165);
+            getConfig().set("coliseu.raio", 16);
+        }
+        if (!getConfig().contains("safezone.raio-blocos")) {
+            getConfig().set("safezone.ativada", true);
+            getConfig().set("safezone.raio-blocos", 25);
         }
         saveConfig();
 
+        int defaultMins = getConfig().getInt("partida.duracao-minutos", 45);
+        matchRemainingSeconds = defaultMins * 60;
+        gatesOpen = getConfig().getBoolean("partida.ativa", false);
+
         registerDefaultQuests();
+        setupWorldAndColiseum();
 
         Bukkit.getPluginManager().registerEvents(this, this);
 
@@ -109,16 +157,478 @@ public final class TagsPlugin extends JavaPlugin implements Listener, CommandExe
         for (Player player : Bukkit.getOnlinePlayers()) {
             applyPlayerTag(player);
             ensurePlayerHasCodexBook(player);
+            if (isInSafeZone(player.getLocation())) {
+                insideSafeZone.add(player.getUniqueId());
+            }
         }
 
+        // Loop principal de 1 segundo (Cronômetro de 45 min + Invencibilidade 2 min + Scoreboard + TAB)
         Bukkit.getScheduler().runTaskTimer(this, () -> {
+            tickMatchTimer();
             for (Player player : Bukkit.getOnlinePlayers()) {
                 updatePlayerScoreboard(player);
             }
         }, 20L, 20L);
 
-        getLogger().info("QuestCodex v2.0 (Tags + Scoreboard + Livro de Conquistas) ativado!");
+        getLogger().info("QuestCodex v3.0 (Coliseu nas Alturas + Portoes + Invencibilidade 2m + Speed I) ativado!");
     }
+
+    // =========================================================================
+    // CONSTRUÇÃO DO COLISEU NAS ALTURAS E CONTROLE DOS PORTÕES
+    // =========================================================================
+
+    private void setupWorldAndColiseum() {
+        World overworld = Bukkit.getWorld("world");
+        if (overworld == null) return;
+
+        Location currentSpawn = overworld.getSpawnLocation();
+        coliseumCenterX = currentSpawn.getBlockX();
+        coliseumCenterZ = currentSpawn.getBlockZ();
+        coliseumFloorY = getConfig().getInt("coliseu.altura-y", 165);
+        coliseumRadius = getConfig().getInt("coliseu.raio", 16);
+
+        int borderSize = getConfig().getInt("partida.borda-mapa-blocos", 350);
+        WorldBorder border = overworld.getWorldBorder();
+        border.setCenter(coliseumCenterX, coliseumCenterZ);
+        border.setSize(borderSize);
+
+        // Constrói o Coliseu nas alturas (Y = 165) e define o Spawnpoint dentro dele
+        buildSkyColiseum(overworld);
+        setColiseumGates(overworld, gatesOpen);
+
+        Location skySpawn = new Location(overworld, coliseumCenterX + 0.5, coliseumFloorY + 1.0, coliseumCenterZ + 0.5, 0f, 0f);
+        overworld.setSpawnLocation(skySpawn);
+
+        ensureEndPortalShrine(overworld, coliseumCenterX, coliseumCenterZ);
+    }
+
+    public Location getColiseumSpawnLocation() {
+        World overworld = Bukkit.getWorld("world");
+        if (overworld == null) return null;
+        return new Location(overworld, coliseumCenterX + 0.5, coliseumFloorY + 1.0, coliseumCenterZ + 0.5, 0f, 0f);
+    }
+
+    private void buildSkyColiseum(World world) {
+        int cx = coliseumCenterX;
+        int cz = coliseumCenterZ;
+        int cy = coliseumFloorY;
+        int R = coliseumRadius; // 16
+
+        // Verifica se o piso central do Coliseu já foi construído
+        if (world.getBlockAt(cx, cy, cz).getType() == Material.CHISELED_QUARTZ_BLOCK) {
+            return;
+        }
+
+        getLogger().info("Construindo o Coliseu nas alturas em (" + cx + ", " + cy + ", " + cz + ")...");
+
+        for (int dx = -R - 1; dx <= R + 1; dx++) {
+            for (int dz = -R - 1; dz <= R + 1; dz++) {
+                double dist = Math.sqrt(dx * dx + dz * dz);
+                if (dist > R + 0.8) continue;
+
+                int x = cx + dx;
+                int z = cz + dz;
+
+                // Limpa o ar acima do piso
+                for (int dy = 1; dy <= 12; dy++) {
+                    world.getBlockAt(x, cy + dy, z).setType(Material.AIR);
+                }
+
+                // 1. Piso do Coliseu (com centro de vidro para ver o mundo lá embaixo!)
+                if (dx == 0 && dz == 0) {
+                    world.getBlockAt(x, cy, z).setType(Material.CHISELED_QUARTZ_BLOCK);
+                    world.getBlockAt(x, cy - 1, z).setType(Material.SEA_LANTERN);
+                } else if (dist <= 3.5) {
+                    world.getBlockAt(x, cy, z).setType(Material.TINTED_GLASS);
+                } else if (Math.abs(dist - 8.0) < 0.7 || Math.abs(dist - 12.0) < 0.7) {
+                    world.getBlockAt(x, cy, z).setType(Material.GOLD_BLOCK);
+                } else if ((Math.abs(dx) + Math.abs(dz)) % 5 == 0) {
+                    world.getBlockAt(x, cy, z).setType(Material.SEA_LANTERN);
+                    world.getBlockAt(x, cy + 1, z).setType(Material.WHITE_CARPET);
+                } else {
+                    world.getBlockAt(x, cy, z).setType(Material.SMOOTH_QUARTZ);
+                }
+
+                // Base inferior reforçada
+                if (dist > 3.5) {
+                    world.getBlockAt(x, cy - 1, z).setType(Material.STONE_BRICKS);
+                }
+
+                // 2. Muralhas e Arquibancadas do Coliseu (Borda circular)
+                if (dist >= R - 1.2 && dist <= R + 0.6) {
+                    boolean isGateOpening = (Math.abs(dx) <= 2 && Math.abs(dz) >= R - 2)
+                            || (Math.abs(dz) <= 2 && Math.abs(dx) >= R - 2);
+
+                    // Altura da parede do Coliseu: 8 blocos
+                    for (int dy = 1; dy <= 8; dy++) {
+                        Block wallBlock = world.getBlockAt(x, cy + dy, z);
+                        if (isGateOpening && dy <= 4) {
+                            // Espaço dos 4 Portões (Norte, Sul, Leste, Oeste) — será preenchido por setColiseumGates
+                            wallBlock.setType(Material.IRON_BARS);
+                        } else if (dy == 8) {
+                            // Topo da muralha com iluminação e detalhes dourados
+                            wallBlock.setType(((dx + dz) % 2 == 0) ? Material.STONE_BRICK_SLAB : Material.GOLD_BLOCK);
+                        } else if (dy == 5) {
+                            wallBlock.setType(Material.CHISELED_STONE_BRICKS);
+                        } else if ((dx % 4 == 0 || dz % 4 == 0)) {
+                            // Pilares de Quartzo
+                            wallBlock.setType(Material.QUARTZ_PILLAR);
+                        } else if (dy >= 3 && dy <= 6 && !isGateOpening) {
+                            // Janelas panorâmicas com grades
+                            wallBlock.setType(Material.IRON_BARS);
+                        } else {
+                            wallBlock.setType(Material.STONE_BRICKS);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    public void setColiseumGates(World world, boolean open) {
+        this.gatesOpen = open;
+        int cx = coliseumCenterX;
+        int cz = coliseumCenterZ;
+        int cy = coliseumFloorY;
+        int R = coliseumRadius;
+
+        Material gateMaterial = open ? Material.AIR : Material.IRON_BARS;
+
+        for (int dx = -R - 1; dx <= R + 1; dx++) {
+            for (int dz = -R - 1; dz <= R + 1; dz++) {
+                double dist = Math.sqrt(dx * dx + dz * dz);
+                if (dist >= R - 1.5 && dist <= R + 0.8) {
+                    boolean isGateOpening = (Math.abs(dx) <= 2 && Math.abs(dz) >= R - 2)
+                            || (Math.abs(dz) <= 2 && Math.abs(dx) >= R - 2);
+                    if (isGateOpening) {
+                        for (int dy = 1; dy <= 4; dy++) {
+                            world.getBlockAt(cx + dx, cy + dy, cz + dz).setType(gateMaterial);
+                        }
+                        // Piso da plataforma de salto nos portões
+                        world.getBlockAt(cx + dx, cy, cz + dz).setType(open ? Material.EMERALD_BLOCK : Material.REDSTONE_BLOCK);
+                    }
+                }
+            }
+        }
+    }
+
+    public boolean canBypassColiseumLock(Player player) {
+        if (player.isOp() || player.getGameMode() == GameMode.CREATIVE || player.getGameMode() == GameMode.SPECTATOR) {
+            return true;
+        }
+        String tagId = getPlayerTagInfo(player.getName()).id.toLowerCase();
+        return tagId.equals("dono") || tagId.equals("mod") || tagId.equals("admin") || tagId.equals("adm") || tagId.equals("dev");
+    }
+
+    public boolean isInsideColiseumBox(Location loc) {
+        if (loc == null || loc.getWorld() == null) return false;
+        if (loc.getWorld().getEnvironment() != World.Environment.NORMAL) return false;
+        double dx = loc.getX() - (coliseumCenterX + 0.5);
+        double dz = loc.getZ() - (coliseumCenterZ + 0.5);
+        double dist = Math.sqrt(dx * dx + dz * dz);
+        return dist <= (coliseumRadius - 0.5) && loc.getY() >= (coliseumFloorY - 2) && loc.getY() <= (coliseumFloorY + 15);
+    }
+
+    private void ensureEndPortalShrine(World world, int spawnX, int spawnZ) {
+        int cx = spawnX;
+        int cz = spawnZ - 30; // 30 blocos ao Norte do Spawn no chão
+        int cy = getGroundSurfaceY(world, cx, cz);
+
+        if (world.getBlockAt(cx, cy + 1, cz - 2).getType() == Material.END_PORTAL_FRAME) {
+            return;
+        }
+
+        for (int dx = -2; dx <= 2; dx++) {
+            for (int dz = -2; dz <= 2; dz++) {
+                world.getBlockAt(cx + dx, cy, cz + dz).setType(Material.STONE_BRICKS);
+                for (int dy = 1; dy <= 4; dy++) {
+                    world.getBlockAt(cx + dx, cy + dy, cz + dz).setType(Material.AIR);
+                }
+            }
+        }
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dz = -1; dz <= 1; dz++) {
+                world.getBlockAt(cx + dx, cy, cz + dz).setType(Material.LAVA);
+            }
+        }
+
+        placePortalFrame(world, cx - 1, cy + 1, cz - 2, org.bukkit.block.BlockFace.SOUTH);
+        placePortalFrame(world, cx,     cy + 1, cz - 2, org.bukkit.block.BlockFace.SOUTH);
+        placePortalFrame(world, cx + 1, cy + 1, cz - 2, org.bukkit.block.BlockFace.SOUTH);
+
+        placePortalFrame(world, cx - 1, cy + 1, cz + 2, org.bukkit.block.BlockFace.NORTH);
+        placePortalFrame(world, cx,     cy + 1, cz + 2, org.bukkit.block.BlockFace.NORTH);
+        placePortalFrame(world, cx + 1, cy + 1, cz + 2, org.bukkit.block.BlockFace.NORTH);
+
+        placePortalFrame(world, cx - 2, cy + 1, cz - 1, org.bukkit.block.BlockFace.EAST);
+        placePortalFrame(world, cx - 2, cy + 1, cz,     org.bukkit.block.BlockFace.EAST);
+        placePortalFrame(world, cx - 2, cy + 1, cz + 1, org.bukkit.block.BlockFace.EAST);
+
+        placePortalFrame(world, cx + 2, cy + 1, cz - 1, org.bukkit.block.BlockFace.WEST);
+        placePortalFrame(world, cx + 2, cy + 1, cz,     org.bukkit.block.BlockFace.WEST);
+        placePortalFrame(world, cx + 2, cy + 1, cz + 1, org.bukkit.block.BlockFace.WEST);
+    }
+
+    private int getGroundSurfaceY(World world, int x, int z) {
+        for (int y = coliseumFloorY - 5; y > world.getMinHeight(); y--) {
+            Material m = world.getBlockAt(x, y, z).getType();
+            if (m.isSolid() && m != Material.BARRIER) {
+                return y;
+            }
+        }
+        return 64;
+    }
+
+    private void placePortalFrame(World world, int x, int y, int z, org.bukkit.block.BlockFace facing) {
+        Block b = world.getBlockAt(x, y, z);
+        b.setType(Material.END_PORTAL_FRAME);
+        if (b.getBlockData() instanceof org.bukkit.block.data.type.EndPortalFrame frame) {
+            frame.setFacing(facing);
+            frame.setEye(false);
+            b.setBlockData(frame);
+        }
+    }
+
+    // =========================================================================
+    // CRONÔMETRO DE 45 MINUTOS E INVENCIBILIDADE DE 2 MINUTOS
+    // =========================================================================
+
+    private void tickMatchTimer() {
+        if (!timerRunning || !getConfig().getBoolean("partida.ativa", false)) {
+            return;
+        }
+
+        // 1. Contagem regressiva da Invencibilidade Inicial (2 minutos = 120s)
+        if (invincibilityRemainingSeconds > 0) {
+            invincibilityRemainingSeconds--;
+
+            for (Player p : Bukkit.getOnlinePlayers()) {
+                p.sendActionBar(
+                        Component.text("🛡 Invencibilidade + Speed I: ", NamedTextColor.GOLD).decorate(TextDecoration.BOLD)
+                                .append(Component.text(formatTime(invincibilityRemainingSeconds), NamedTextColor.GREEN).decorate(TextDecoration.BOLD))
+                );
+            }
+
+            if (invincibilityRemainingSeconds == 60 || invincibilityRemainingSeconds == 30 || invincibilityRemainingSeconds == 10) {
+                Bukkit.broadcast(
+                        Component.text("🛡 [QUEST CODEX] ", NamedTextColor.GOLD).decorate(TextDecoration.BOLD)
+                                .append(Component.text("A invencibilidade termina em ", NamedTextColor.YELLOW).decoration(TextDecoration.BOLD, false))
+                                .append(Component.text(invincibilityRemainingSeconds + " segundos", NamedTextColor.RED).decorate(TextDecoration.BOLD))
+                                .append(Component.text("!", NamedTextColor.YELLOW).decoration(TextDecoration.BOLD, false))
+                );
+                for (Player p : Bukkit.getOnlinePlayers()) {
+                    p.playSound(p.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 1.0f, 1.5f);
+                }
+            } else if (invincibilityRemainingSeconds == 0) {
+                Bukkit.broadcast(
+                        Component.text("⚔ [QUEST CODEX] ", NamedTextColor.RED).decorate(TextDecoration.BOLD)
+                                .append(Component.text("A invencibilidade de 2 minutos ACABOU! O PvP e o dano estão valendo!", NamedTextColor.YELLOW).decoration(TextDecoration.BOLD, false))
+                );
+                for (Player p : Bukkit.getOnlinePlayers()) {
+                    p.playSound(p.getLocation(), Sound.ENTITY_ENDER_DRAGON_GROWL, 0.7f, 1.2f);
+                }
+            }
+        }
+
+        // 2. Contagem regressiva da Partida (45 minutos)
+        if (matchRemainingSeconds > 0) {
+            matchRemainingSeconds--;
+
+            if (matchRemainingSeconds == 30 * 60 || matchRemainingSeconds == 15 * 60
+                    || matchRemainingSeconds == 10 * 60 || matchRemainingSeconds == 5 * 60
+                    || matchRemainingSeconds == 60) {
+                int mins = matchRemainingSeconds / 60;
+                Bukkit.broadcast(
+                        Component.text("⏳ [QUEST CODEX] ", NamedTextColor.GOLD).decorate(TextDecoration.BOLD)
+                                .append(Component.text("Restam ", NamedTextColor.YELLOW).decoration(TextDecoration.BOLD, false))
+                                .append(Component.text(mins + (mins == 1 ? " minuto" : " minutos"), NamedTextColor.RED).decorate(TextDecoration.BOLD))
+                                .append(Component.text(" para o fim da partida!", NamedTextColor.YELLOW).decoration(TextDecoration.BOLD, false))
+                );
+                for (Player p : Bukkit.getOnlinePlayers()) {
+                    p.playSound(p.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 1.0f, 1.2f);
+                }
+            } else if (matchRemainingSeconds <= 10 && matchRemainingSeconds > 0) {
+                for (Player p : Bukkit.getOnlinePlayers()) {
+                    p.sendActionBar(
+                            Component.text("⏳ Fim da partida em: ", NamedTextColor.YELLOW)
+                                    .append(Component.text(matchRemainingSeconds + "s", NamedTextColor.RED).decorate(TextDecoration.BOLD))
+                    );
+                    p.playSound(p.getLocation(), Sound.BLOCK_NOTE_BLOCK_HAT, 1.0f, 1.5f);
+                }
+            }
+
+            if (matchRemainingSeconds == 0) {
+                finishMatchAutomatically();
+            }
+        }
+    }
+
+    private void finishMatchAutomatically() {
+        timerRunning = false;
+        invincibilityRemainingSeconds = 0;
+        getConfig().set("partida.ativa", false);
+        saveConfig();
+
+        List<Map.Entry<String, Integer>> top = getTopPlayers(1);
+        String winnerName = top.isEmpty() ? "Ninguém" : top.get(0).getKey();
+        int winnerPts = top.isEmpty() ? 0 : top.get(0).getValue();
+
+        Bukkit.broadcast(Component.empty());
+        Bukkit.broadcast(Component.text("=============================================", NamedTextColor.GOLD).decorate(TextDecoration.BOLD));
+        Bukkit.broadcast(Component.text("🏁 TEMPO ESGOTADO! FIM DA PARTIDA! 🏁", NamedTextColor.RED).decorate(TextDecoration.BOLD));
+        Bukkit.broadcast(
+                Component.text("🏆 GRANDE VENCEDOR: ", NamedTextColor.YELLOW).decorate(TextDecoration.BOLD)
+                        .append(Component.text(winnerName + " (" + winnerPts + " pts)", NamedTextColor.GREEN).decorate(TextDecoration.BOLD))
+        );
+        Bukkit.broadcast(Component.text("=============================================", NamedTextColor.GOLD).decorate(TextDecoration.BOLD));
+
+        showRankingChat(Bukkit.getConsoleSender());
+        Title winTitle = Title.title(
+                Component.text("🏆 FIM DE JOGO! 🏆", NamedTextColor.GOLD).decorate(TextDecoration.BOLD),
+                Component.text("Vencedor: " + winnerName + " (" + winnerPts + " pts)", NamedTextColor.YELLOW),
+                Title.Times.times(Duration.ofMillis(500), Duration.ofSeconds(5), Duration.ofSeconds(1))
+        );
+
+        for (Player p : Bukkit.getOnlinePlayers()) {
+            showRankingChat(p);
+            p.showTitle(winTitle);
+            p.playSound(p.getLocation(), Sound.UI_TOAST_CHALLENGE_COMPLETE, 1.0f, 1.0f);
+        }
+    }
+
+    private String formatTime(int totalSeconds) {
+        int mins = totalSeconds / 60;
+        int secs = totalSeconds % 60;
+        return String.format("%02d:%02d", mins, secs);
+    }
+
+    // =========================================================================
+    // SAFE ZONE DO COLISEU, RESTRIÇÃO DE SAÍDA E INVENCIBILIDADE
+    // =========================================================================
+
+    public boolean isInSafeZone(Location loc) {
+        if (loc == null || loc.getWorld() == null) return false;
+        if (!getConfig().getBoolean("safezone.ativada", true)) return false;
+        if (loc.getWorld().getEnvironment() != World.Environment.NORMAL) return false;
+
+        // O Coliseu nas alturas (Y >= coliseumFloorY - 3 dentro do raio de 25 blocos) é sempre protegido!
+        double dx = Math.abs(loc.getX() - coliseumCenterX);
+        double dz = Math.abs(loc.getZ() - coliseumCenterZ);
+        int radius = getConfig().getInt("safezone.raio-blocos", 25);
+
+        return dx <= radius && dz <= radius && loc.getY() >= (coliseumFloorY - 4);
+    }
+
+    @EventHandler
+    public void onPlayerMoveColiseumAndSafeZone(PlayerMoveEvent event) {
+        if (event.getFrom().getBlockX() == event.getTo().getBlockX()
+                && event.getFrom().getBlockY() == event.getTo().getBlockY()
+                && event.getFrom().getBlockZ() == event.getTo().getBlockZ()) {
+            return;
+        }
+        Player player = event.getPlayer();
+
+        // Se a partida ainda não começou (portões trancados), somente DONO, MOD e ADMIN podem sair do Coliseu!
+        if (!gatesOpen && !canBypassColiseumLock(player)) {
+            if (!isInsideColiseumBox(event.getTo())) {
+                Location spawnLoc = getColiseumSpawnLocation();
+                if (spawnLoc != null) {
+                    player.teleport(spawnLoc);
+                    player.sendActionBar(
+                            Component.text("🔒 Os portões do Coliseu estão fechados! Aguarde o início da partida!", NamedTextColor.RED)
+                    );
+                    player.playSound(player.getLocation(), Sound.BLOCK_IRON_DOOR_CLOSE, 0.8f, 1.0f);
+                    return;
+                }
+            }
+        }
+
+        boolean nowInSafe = isInSafeZone(event.getTo());
+        boolean wasInSafe = insideSafeZone.contains(player.getUniqueId());
+
+        if (nowInSafe && !wasInSafe) {
+            insideSafeZone.add(player.getUniqueId());
+            player.sendActionBar(
+                    Component.text("🏛 Você está no ", NamedTextColor.GREEN)
+                            .append(Component.text("Coliseu (Safe Zone)", NamedTextColor.GOLD).decorate(TextDecoration.BOLD))
+            );
+        } else if (!nowInSafe && wasInSafe) {
+            insideSafeZone.remove(player.getUniqueId());
+            if (invincibilityRemainingSeconds > 0) {
+                player.sendActionBar(
+                        Component.text("🛡 Você saltou do Coliseu! Invencibilidade ativa por ", NamedTextColor.GREEN)
+                                .append(Component.text(formatTime(invincibilityRemainingSeconds), NamedTextColor.GOLD).decorate(TextDecoration.BOLD))
+                );
+            } else {
+                player.sendActionBar(
+                        Component.text("⚔ Você saiu do Coliseu — Survival e PvP Ativados!", NamedTextColor.YELLOW)
+                );
+            }
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onDamageProtected(EntityDamageEvent event) {
+        if (event.getEntity() instanceof Player victim) {
+            // Invencível enquanto os portões estão fechados, durante os 2 min iniciais (para queda do Coliseu e tudo mais) ou dentro do Coliseu
+            if (!gatesOpen || invincibilityRemainingSeconds > 0 || isInSafeZone(victim.getLocation())) {
+                event.setCancelled(true);
+            }
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onPvpProtected(EntityDamageByEntityEvent event) {
+        Player attacker = null;
+        if (event.getDamager() instanceof Player p) {
+            attacker = p;
+        } else if (event.getDamager() instanceof Projectile proj && proj.getShooter() instanceof Player p) {
+            attacker = p;
+        }
+
+        if (event.getEntity() instanceof Player victim) {
+            if (!gatesOpen || invincibilityRemainingSeconds > 0
+                    || isInSafeZone(victim.getLocation())
+                    || (attacker != null && isInSafeZone(attacker.getLocation()))) {
+                event.setCancelled(true);
+                if (attacker != null) {
+                    if (invincibilityRemainingSeconds > 0) {
+                        attacker.sendActionBar(Component.text("🛡 Invencibilidade inicial ativa (" + formatTime(invincibilityRemainingSeconds) + ")!", NamedTextColor.RED));
+                    } else {
+                        attacker.sendActionBar(Component.text("🛡 PvP desativado no Coliseu!", NamedTextColor.RED));
+                    }
+                }
+            }
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onHungerProtected(FoodLevelChangeEvent event) {
+        if (event.getEntity() instanceof Player player) {
+            if ((!gatesOpen || invincibilityRemainingSeconds > 0 || isInSafeZone(player.getLocation()))
+                    && event.getFoodLevel() < player.getFoodLevel()) {
+                event.setCancelled(true);
+            }
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onBlockPlaceInSafeZone(BlockPlaceEvent event) {
+        Player player = event.getPlayer();
+        if (isInSafeZone(event.getBlock().getLocation()) && player.getGameMode() != GameMode.CREATIVE) {
+            event.setCancelled(true);
+            player.sendActionBar(Component.text("🛡 Você não pode construir no Coliseu!", NamedTextColor.RED));
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onExplodeInSafeZone(EntityExplodeEvent event) {
+        event.blockList().removeIf(block -> isInSafeZone(block.getLocation()));
+    }
+
+    // =========================================================================
+    // REGISTRO DE CONQUISTAS
+    // =========================================================================
 
     private void registerDefaultQuests() {
         quests.clear();
@@ -273,7 +783,6 @@ public final class TagsPlugin extends JavaPlugin implements Listener, CommandExe
                 Component.text(GUI_TITLE_MARKER, NamedTextColor.GOLD).decorate(TextDecoration.BOLD)
         );
 
-        // Moldura decorativa com painéis de vidro cinza escuro
         ItemStack filler = new ItemStack(Material.GRAY_STAINED_GLASS_PANE);
         ItemMeta fillerMeta = filler.getItemMeta();
         if (fillerMeta != null) {
@@ -290,7 +799,6 @@ public final class TagsPlugin extends JavaPlugin implements Listener, CommandExe
         List<String> completedList = getConfig().getStringList("conquistas-jogador." + pKey);
         int playerPts = getPlayerPoints(player.getName());
 
-        // Ícone de Resumo e Ranking no Topo (Slot 4)
         ItemStack infoItem = new ItemStack(Material.NETHER_STAR);
         ItemMeta infoMeta = infoItem.getItemMeta();
         if (infoMeta != null) {
@@ -301,6 +809,9 @@ public final class TagsPlugin extends JavaPlugin implements Listener, CommandExe
             );
             List<Component> infoLore = new ArrayList<>();
             infoLore.add(Component.empty());
+            infoLore.add(Component.text("Tempo Restante: ", NamedTextColor.WHITE)
+                    .append(Component.text(formatTime(matchRemainingSeconds), NamedTextColor.GREEN).decorate(TextDecoration.BOLD))
+                    .decoration(TextDecoration.ITALIC, false));
             infoLore.add(Component.text("Seus Pontos: ", NamedTextColor.WHITE)
                     .append(Component.text(playerPts + " pts", NamedTextColor.AQUA).decorate(TextDecoration.BOLD))
                     .decoration(TextDecoration.ITALIC, false));
@@ -330,7 +841,6 @@ public final class TagsPlugin extends JavaPlugin implements Listener, CommandExe
         }
         inv.setItem(4, infoItem);
 
-        // Preenche cada conquista
         for (QuestDef q : quests.values()) {
             boolean doneByPlayer = completedList.contains(q.id);
             String firstPlayer = getConfig().getString("primeiro-conquista." + q.id, null);
@@ -417,7 +927,7 @@ public final class TagsPlugin extends JavaPlugin implements Listener, CommandExe
     }
 
     public void completeQuest(Player player, String questId) {
-        if (!getConfig().getBoolean("partida.ativa", true)) {
+        if (!getConfig().getBoolean("partida.ativa", false)) {
             return;
         }
 
@@ -428,7 +938,7 @@ public final class TagsPlugin extends JavaPlugin implements Listener, CommandExe
         String playerQuestsPath = "conquistas-jogador." + pKey;
         List<String> done = new ArrayList<>(getConfig().getStringList(playerQuestsPath));
         if (done.contains(questId)) {
-            return; // Jogador já completou esta conquista nesta partida
+            return;
         }
 
         done.add(questId);
@@ -447,7 +957,6 @@ public final class TagsPlugin extends JavaPlugin implements Listener, CommandExe
         getConfig().set("pontuacao." + pKey, newTotal);
         saveConfig();
 
-        // Efeitos sonoros e mensagem global/individual
         player.playSound(player.getLocation(), Sound.UI_TOAST_CHALLENGE_COMPLETE, 0.8f, 1.2f);
 
         if (isFirst) {
@@ -468,7 +977,6 @@ public final class TagsPlugin extends JavaPlugin implements Listener, CommandExe
             );
         }
 
-        // Atualiza a Scoreboard de todo mundo imediatamente
         for (Player p : Bukkit.getOnlinePlayers()) {
             updatePlayerScoreboard(p);
         }
@@ -497,7 +1005,6 @@ public final class TagsPlugin extends JavaPlugin implements Listener, CommandExe
             return;
         }
 
-        // Verifica se clicou em algum item dentro do inventário que destrava conquista
         if (event.getWhoClicked() instanceof Player player && event.getCurrentItem() != null) {
             checkItemAcquisition(player, event.getCurrentItem().getType());
         }
@@ -505,13 +1012,24 @@ public final class TagsPlugin extends JavaPlugin implements Listener, CommandExe
 
     @EventHandler
     public void onRespawn(PlayerRespawnEvent event) {
+        Location skySpawn = getColiseumSpawnLocation();
+        if (skySpawn != null) {
+            event.setRespawnLocation(skySpawn);
+        }
         Bukkit.getScheduler().runTaskLater(this, () -> ensurePlayerHasCodexBook(event.getPlayer()), 10L);
     }
 
-    @EventHandler
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onBlockBreak(BlockBreakEvent event) {
         Player player = event.getPlayer();
         Block block = event.getBlock();
+
+        if (isInSafeZone(block.getLocation()) && player.getGameMode() != GameMode.CREATIVE) {
+            event.setCancelled(true);
+            player.sendActionBar(Component.text("🛡 Você não pode quebrar blocos no Coliseu!", NamedTextColor.RED));
+            return;
+        }
+
         Material type = block.getType();
         String name = type.name();
 
@@ -668,7 +1186,7 @@ public final class TagsPlugin extends JavaPlugin implements Listener, CommandExe
     }
 
     // =========================================================================
-    // SISTEMA DE TAGS E SCOREBOARD (INTEGRADO COM PONTOS)
+    // SISTEMA DE TAGS, TAB E SCOREBOARD (INTEGRADO COM PONTOS E TEMPO)
     // =========================================================================
 
     @EventHandler
@@ -676,6 +1194,18 @@ public final class TagsPlugin extends JavaPlugin implements Listener, CommandExe
         Player player = event.getPlayer();
         applyPlayerTag(player);
         ensurePlayerHasCodexBook(player);
+
+        // Se a partida ainda não começou ou o jogador acabou de entrar, garante que ele nasça no Coliseu
+        Location skySpawn = getColiseumSpawnLocation();
+        if (skySpawn != null && (!gatesOpen || !player.hasPlayedBefore() || player.getLocation().getY() < coliseumFloorY - 2)) {
+            if (!gatesOpen) {
+                player.teleport(skySpawn);
+            }
+        }
+
+        if (isInSafeZone(player.getLocation())) {
+            insideSafeZone.add(player.getUniqueId());
+        }
         Bukkit.getScheduler().runTaskLater(this, () -> {
             for (Player p : Bukkit.getOnlinePlayers()) {
                 updatePlayerScoreboard(p);
@@ -716,14 +1246,12 @@ public final class TagsPlugin extends JavaPlugin implements Listener, CommandExe
     public void updatePlayerTab(Player player) {
         TagInfo info = getPlayerTagInfo(player.getName());
         int pts = getPlayerPoints(player.getName());
-        int ping = player.getPing();
 
         Component prefixComp = Component.text(info.prefix, info.color);
         if (info.bold) {
             prefixComp = prefixComp.decorate(TextDecoration.BOLD);
         }
 
-        // Nome do jogador no TAB: TAG Nick ✦ 150 pts
         Component tabName = Component.text(" ", NamedTextColor.DARK_GRAY)
                 .append(prefixComp)
                 .append(Component.text(player.getName(), info.color).decoration(TextDecoration.BOLD, false))
@@ -735,17 +1263,8 @@ public final class TagsPlugin extends JavaPlugin implements Listener, CommandExe
                 prefixComp.append(Component.text(player.getName(), info.color).decoration(TextDecoration.BOLD, false))
         );
 
-        // Cabeçalho (Header) e Rodapé (Footer) estilizados do TAB
-        int onlineCount = Bukkit.getOnlinePlayers().size();
-        int completedCount = getConfig().getStringList("conquistas-jogador." + player.getName().toLowerCase()).size();
         List<Map.Entry<String, Integer>> top1 = getTopPlayers(1);
         String leaderText = top1.isEmpty() ? "Ninguém (0 pts)" : top1.get(0).getKey() + " (" + top1.get(0).getValue() + " pts)";
-
-        NamedTextColor pingColor;
-        if (ping < 60) pingColor = NamedTextColor.GREEN;
-        else if (ping < 150) pingColor = NamedTextColor.YELLOW;
-        else if (ping < 250) pingColor = NamedTextColor.GOLD;
-        else pingColor = NamedTextColor.RED;
 
         Component header = Component.empty()
                 .append(Component.newline())
@@ -782,7 +1301,6 @@ public final class TagsPlugin extends JavaPlugin implements Listener, CommandExe
 
         for (Player target : Bukkit.getOnlinePlayers()) {
             TagInfo tInfo = getPlayerTagInfo(target.getName());
-            int targetPts = getPlayerPoints(target.getName());
             String teamName = "t_" + tInfo.order + "_" + tInfo.id;
             if (teamName.length() > 16) {
                 teamName = teamName.substring(0, 16);
@@ -855,11 +1373,32 @@ public final class TagsPlugin extends JavaPlugin implements Listener, CommandExe
         else if (ping < 250) pingColor = NamedTextColor.GOLD;
         else pingColor = NamedTextColor.RED;
 
+        NamedTextColor timerColor = timerRunning
+                ? (matchRemainingSeconds <= 300 ? NamedTextColor.RED : NamedTextColor.GREEN)
+                : NamedTextColor.YELLOW;
+
         List<Map.Entry<String, Integer>> top1 = getTopPlayers(1);
         String leaderText = top1.isEmpty() ? "Ninguém" : top1.get(0).getKey() + " (" + top1.get(0).getValue() + ")";
 
-        // Linhas da Scoreboard (de 9 até 1)
-        setSidebarLine(obj, "line9", 9, Component.empty());
+        // Linhas da Scoreboard (10 até 1)
+        setSidebarLine(obj, "line10", 10, Component.empty());
+
+        if (!gatesOpen) {
+            setSidebarLine(obj, "line9", 9,
+                    Component.text("Status: ", NamedTextColor.WHITE)
+                            .append(Component.text("No Coliseu", NamedTextColor.YELLOW).decorate(TextDecoration.BOLD))
+            );
+        } else if (invincibilityRemainingSeconds > 0) {
+            setSidebarLine(obj, "line9", 9,
+                    Component.text("Imune: ", NamedTextColor.WHITE)
+                            .append(Component.text(formatTime(invincibilityRemainingSeconds), NamedTextColor.GOLD).decorate(TextDecoration.BOLD))
+            );
+        } else {
+            setSidebarLine(obj, "line9", 9,
+                    Component.text("Tempo: ", NamedTextColor.WHITE)
+                            .append(Component.text(formatTime(matchRemainingSeconds), timerColor).decorate(TextDecoration.BOLD))
+            );
+        }
 
         setSidebarLine(obj, "line8", 8,
                 Component.text("Cargo: ", NamedTextColor.WHITE)
@@ -937,62 +1476,128 @@ public final class TagsPlugin extends JavaPlugin implements Listener, CommandExe
             }
             if (args.length == 0) {
                 sender.sendMessage(Component.text("=== Comandos da Partida (QuestCodex) ===", NamedTextColor.GOLD).decorate(TextDecoration.BOLD));
-                sender.sendMessage(Component.text("/partida iniciar", NamedTextColor.YELLOW).append(Component.text(" - Inicia/ativa a contagem de pontos e entrega o livro", NamedTextColor.GRAY)));
+                sender.sendMessage(Component.text("/partida iniciar [minutos]", NamedTextColor.YELLOW).append(Component.text(" - Abre os portões do Coliseu, dá 2m de Invencibilidade + Speed I e inicia os 45m", NamedTextColor.GRAY)));
                 sender.sendMessage(Component.text("/partida parar", NamedTextColor.YELLOW).append(Component.text(" - Pausa a partida e anuncia o vencedor atual", NamedTextColor.GRAY)));
-                sender.sendMessage(Component.text("/partida resetar", NamedTextColor.YELLOW).append(Component.text(" - Zera todos os pontos e conquistas para nova partida", NamedTextColor.GRAY)));
+                sender.sendMessage(Component.text("/partida resetar", NamedTextColor.YELLOW).append(Component.text(" - Fecha o Coliseu, puxa todos para cima e zera os pontos", NamedTextColor.GRAY)));
+                sender.sendMessage(Component.text("/partida coliseu", NamedTextColor.YELLOW).append(Component.text(" - Teleporta para o Coliseu nas alturas", NamedTextColor.GRAY)));
                 sender.sendMessage(Component.text("/partida darlivro", NamedTextColor.YELLOW).append(Component.text(" - Entrega o livro QuestCodex para todos", NamedTextColor.GRAY)));
                 sender.sendMessage(Component.text("/partida top", NamedTextColor.YELLOW).append(Component.text(" - Mostra o ranking de pontos no chat", NamedTextColor.GRAY)));
                 return true;
             }
 
+            World overworld = Bukkit.getWorld("world");
+
             switch (args[0].toLowerCase()) {
                 case "iniciar", "start" -> {
+                    int mins = getConfig().getInt("partida.duracao-minutos", 45);
+                    if (args.length >= 2) {
+                        try {
+                            mins = Integer.parseInt(args[1]);
+                        } catch (NumberFormatException ignored) {}
+                    }
+                    matchRemainingSeconds = mins * 60;
+                    invincibilityRemainingSeconds = getConfig().getInt("partida.invencibilidade-segundos", 120);
+                    timerRunning = true;
                     getConfig().set("partida.ativa", true);
                     saveConfig();
+
+                    if (overworld != null) {
+                        setColiseumGates(overworld, true);
+                    }
+
+                    Title startTitle = Title.title(
+                            Component.text("🔓 PORTÕES ABERTOS! 🔓", NamedTextColor.GOLD).decorate(TextDecoration.BOLD),
+                            Component.text("Salte do Coliseu! 2 min de Invencibilidade + Speed I!", NamedTextColor.GREEN),
+                            Title.Times.times(Duration.ofMillis(300), Duration.ofSeconds(4), Duration.ofSeconds(1))
+                    );
+
+                    int speedTicks = invincibilityRemainingSeconds * 20;
+                    PotionEffect speedEffect = new PotionEffect(PotionEffectType.SPEED, speedTicks, 0, false, true, true);
+
                     for (Player p : Bukkit.getOnlinePlayers()) {
                         ensurePlayerHasCodexBook(p);
+                        p.addPotionEffect(speedEffect);
+                        p.setHealth(20.0);
+                        p.setFoodLevel(20);
+                        p.showTitle(startTitle);
                         p.playSound(p.getLocation(), Sound.EVENT_RAID_HORN, 1.0f, 1.0f);
+                        p.playSound(p.getLocation(), Sound.BLOCK_IRON_DOOR_OPEN, 1.0f, 0.8f);
                         updatePlayerScoreboard(p);
                     }
+
+                    Bukkit.broadcast(Component.empty());
                     Bukkit.broadcast(
                             Component.text("⚔ [QUEST CODEX] ", NamedTextColor.GOLD).decorate(TextDecoration.BOLD)
-                                    .append(Component.text("A partida começou! Abram o livro ", NamedTextColor.GREEN).decoration(TextDecoration.BOLD, false))
-                                    .append(Component.text("QuestCodex", NamedTextColor.YELLOW).decorate(TextDecoration.BOLD))
-                                    .append(Component.text(" para ver as conquistas!", NamedTextColor.GREEN).decoration(TextDecoration.BOLD, false))
+                                    .append(Component.text("OS PORTÕES DO COLISEU FORAM ABERTOS!", NamedTextColor.GREEN).decorate(TextDecoration.BOLD))
                     );
+                    Bukkit.broadcast(
+                            Component.text("🛡 Todos receberam ", NamedTextColor.YELLOW)
+                                    .append(Component.text("2 minutos de Invencibilidade + Speed I", NamedTextColor.AQUA).decorate(TextDecoration.BOLD))
+                                    .append(Component.text(" para saltar do Coliseu e começar!", NamedTextColor.YELLOW))
+                    );
+                    Bukkit.broadcast(Component.empty());
                     return true;
                 }
                 case "parar", "stop", "encerrar" -> {
+                    timerRunning = false;
+                    invincibilityRemainingSeconds = 0;
                     getConfig().set("partida.ativa", false);
                     saveConfig();
+                    if (overworld != null) {
+                        setColiseumGates(overworld, false);
+                    }
                     Bukkit.broadcast(
                             Component.text("🏁 [QUEST CODEX] ", NamedTextColor.GOLD).decorate(TextDecoration.BOLD)
-                                    .append(Component.text("A partida foi encerrada!", NamedTextColor.RED).decoration(TextDecoration.BOLD, false))
+                                    .append(Component.text("A partida foi encerrada e os portões do Coliseu foram fechados!", NamedTextColor.RED).decoration(TextDecoration.BOLD, false))
                     );
                     showRankingChat(Bukkit.getConsoleSender());
                     for (Player p : Bukkit.getOnlinePlayers()) {
                         showRankingChat(p);
                         p.playSound(p.getLocation(), Sound.UI_TOAST_CHALLENGE_COMPLETE, 1.0f, 1.0f);
+                        updatePlayerScoreboard(p);
                     }
                     return true;
                 }
                 case "resetar", "reset" -> {
+                    timerRunning = false;
+                    invincibilityRemainingSeconds = 0;
+                    int mins = getConfig().getInt("partida.duracao-minutos", 45);
+                    matchRemainingSeconds = mins * 60;
                     getConfig().set("pontuacao", null);
                     getConfig().set("conquistas-jogador", null);
                     getConfig().set("primeiro-conquista", null);
-                    getConfig().set("partida.ativa", true);
+                    getConfig().set("partida.ativa", false);
                     blockBreakProgress.clear();
                     mobKillProgress.clear();
                     saveConfig();
 
+                    if (overworld != null) {
+                        setColiseumGates(overworld, false);
+                    }
+
+                    Location skySpawn = getColiseumSpawnLocation();
                     for (Player p : Bukkit.getOnlinePlayers()) {
+                        p.removePotionEffect(PotionEffectType.SPEED);
+                        if (skySpawn != null) {
+                            p.teleport(skySpawn);
+                        }
                         ensurePlayerHasCodexBook(p);
                         updatePlayerScoreboard(p);
                     }
                     Bukkit.broadcast(
                             Component.text("♻ [QUEST CODEX] ", NamedTextColor.GOLD).decorate(TextDecoration.BOLD)
-                                    .append(Component.text("Todos os pontos e conquistas foram resetados para uma nova partida!", NamedTextColor.YELLOW).decoration(TextDecoration.BOLD, false))
+                                    .append(Component.text("Todos foram puxados para o Coliseu trancado e os pontos foram zerados! Use /partida iniciar para abrir os portões!", NamedTextColor.YELLOW).decoration(TextDecoration.BOLD, false))
                     );
+                    return true;
+                }
+                case "coliseu", "spawn" -> {
+                    if (sender instanceof Player player) {
+                        Location skySpawn = getColiseumSpawnLocation();
+                        if (skySpawn != null) {
+                            player.teleport(skySpawn);
+                            player.sendMessage(Component.text("Teleportado para o Coliseu nas alturas!", NamedTextColor.GREEN));
+                        }
+                    }
                     return true;
                 }
                 case "darlivro" -> {
@@ -1030,7 +1635,6 @@ public final class TagsPlugin extends JavaPlugin implements Listener, CommandExe
             return true;
         }
 
-        // Comando /tag
         if (args.length == 0) {
             if (!(sender instanceof Player player)) {
                 sendHelp(sender);
@@ -1069,10 +1673,11 @@ public final class TagsPlugin extends JavaPlugin implements Listener, CommandExe
                     return true;
                 }
                 reloadConfig();
+                setupWorldAndColiseum();
                 for (Player p : Bukkit.getOnlinePlayers()) {
                     applyPlayerTag(p);
                 }
-                sender.sendMessage(Component.text("Configuração de tags e scoreboard recarregada com sucesso!", NamedTextColor.GREEN));
+                sender.sendMessage(Component.text("Configuração recarregada com sucesso!", NamedTextColor.GREEN));
                 return true;
             }
             case "criar" -> {
@@ -1409,7 +2014,7 @@ public final class TagsPlugin extends JavaPlugin implements Listener, CommandExe
         sender.sendMessage(Component.text("/sb", NamedTextColor.YELLOW).append(Component.text(" - Mostra ou oculta a Scoreboard lateral", NamedTextColor.GRAY)));
         if (sender.isOp() || sender.hasPermission("tags.admin")) {
             sender.sendMessage(Component.text("--- Comandos de Admin (OP) ---", NamedTextColor.RED));
-            sender.sendMessage(Component.text("/partida <iniciar|parar|resetar|darlivro>", NamedTextColor.AQUA).append(Component.text(" - Controla a partida", NamedTextColor.GRAY)));
+            sender.sendMessage(Component.text("/partida <iniciar|parar|resetar|coliseu>", NamedTextColor.AQUA).append(Component.text(" - Controla o Coliseu e a partida", NamedTextColor.GRAY)));
             sender.sendMessage(Component.text("/tag add <nick> <tag|*>", NamedTextColor.AQUA).append(Component.text(" - Libera uma tag para o jogador usar", NamedTextColor.GRAY)));
             sender.sendMessage(Component.text("/tag set <nick> <tag>", NamedTextColor.AQUA).append(Component.text(" - Coloca e libera a tag no jogador na hora", NamedTextColor.GRAY)));
             sender.sendMessage(Component.text("/tag remover <nick> [tag]", NamedTextColor.AQUA).append(Component.text(" - Reseta ou remove uma tag do jogador", NamedTextColor.GRAY)));
@@ -1433,7 +2038,7 @@ public final class TagsPlugin extends JavaPlugin implements Listener, CommandExe
         if (cmdName.equals("partida")) {
             if (args.length == 1 && (sender.isOp() || sender.hasPermission("tags.admin"))) {
                 String p = args[0].toLowerCase();
-                List<String> opts = new ArrayList<>(Arrays.asList("iniciar", "parar", "resetar", "darlivro", "top"));
+                List<String> opts = new ArrayList<>(Arrays.asList("iniciar", "parar", "resetar", "coliseu", "darlivro", "top"));
                 opts.removeIf(o -> !o.startsWith(p));
                 return opts;
             }
