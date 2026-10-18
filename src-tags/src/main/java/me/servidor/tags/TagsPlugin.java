@@ -214,7 +214,7 @@ public final class TagsPlugin extends JavaPlugin implements Listener, CommandExe
             }
         }, 20L, 20L);
 
-        getLogger().info("QuestCodex v4.0 (21 Kits HG com Habilidades/Cooldown + Sistema de Pontos Revisado) ativado!");
+        getLogger().info("QuestCodex v" + getPluginMeta().getVersion() + " ativado!");
     }
 
     // =========================================================================

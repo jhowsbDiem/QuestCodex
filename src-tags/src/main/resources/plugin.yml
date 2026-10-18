@@ -1,5 +1,5 @@
 name: TagsPlugin
-version: '3.0'
+version: '0.1.0'
 main: me.servidor.tags.TagsPlugin
 api-version: '26.3'
 description: Sistema completo QuestCodex - Tags, Scoreboard, Coliseu, Kits, Cacador de Pontos, Bau de Morte e Podio

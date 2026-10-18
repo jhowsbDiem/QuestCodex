@@ -5,7 +5,7 @@ title Servidor Minecraft Paper 26.3 - QuestCodex
 REM 1. Se o paper-26.3-205.jar nao existir (ex: novo clone), baixa automaticamente da API do PaperMC
 if not exist "paper-26.3-205.jar" (
     echo [QuestCodex] Baixando Paper 26.3-205...
-    powershell -NoProfile -Command "$ua='QuestCodex/1.0'; $url=(Invoke-RestMethod -Uri 'https://fill.papermc.io/v3/projects/paper/versions/26.3/builds/latest' -Headers @{'User-Agent'=$ua}).downloads.'server:default'.url; Invoke-WebRequest -Uri $url -Headers @{'User-Agent'=$ua} -OutFile 'paper-26.3-205.jar'"
+    powershell -NoProfile -Command "$ua='QuestCodex/0.1.0'; $url=(Invoke-RestMethod -Uri 'https://fill.papermc.io/v3/projects/paper/versions/26.3/builds/latest' -Headers @{'User-Agent'=$ua}).downloads.'server:default'.url; Invoke-WebRequest -Uri $url -Headers @{'User-Agent'=$ua} -OutFile 'paper-26.3-205.jar'"
 )
 
 REM 2. Garante eula.txt e server.properties com a Seed oficial (7311929229522424735) e Dificuldade HARD

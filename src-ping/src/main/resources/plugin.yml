@@ -1,5 +1,5 @@
 name: PingPlugin
-version: '1.0'
+version: '0.1.0'
 main: me.servidor.ping.PingPlugin
 api-version: '26.3'
 description: Plugin simples para verificar a latencia (ping) dos jogadores
